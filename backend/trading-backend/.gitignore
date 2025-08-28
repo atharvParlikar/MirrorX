@@ -1,0 +1,17 @@
+# Generated files and directories by Cargo
+/target/
+
+# Cargo.lock for libraries (optional - keep for executables)
+# Cargo.lock
+
+# Operating System and Editor specific files
+.DS_Store
+.vscode/
+.idea/
+
+# Editor swap files
+*.swp
+*.swo
+
+# Crash logs
+*.log

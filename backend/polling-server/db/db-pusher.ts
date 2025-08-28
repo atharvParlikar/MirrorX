@@ -1,0 +1,18 @@
+import { createClient } from "redis";
+import type { PriceUpdate } from "../types";
+import { sendPrice } from "./db.ts";
+
+const client = createClient();
+await client.connect();
+
+async function pushUpdatesToDb(priceUpdate: PriceUpdate) {
+  const price = (priceUpdate.buy + priceUpdate.sell) / 2;
+  await sendPrice(price);
+  console.log("price inserted");
+}
+
+client.subscribe("priceUpdates", async (msg) => {
+  const prices: PriceUpdate = JSON.parse(msg);
+  await pushUpdatesToDb(prices);
+});
+

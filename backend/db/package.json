@@ -1,10 +1,8 @@
 {
-  "name": "polling-server",
-  "module": "index.ts",
-  "type": "module",
+  "name": "db",
   "private": true,
   "scripts": {
-    "db": "bun ./db/db-init.ts"
+    "init": "bun ./db-init.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -14,9 +12,6 @@
   },
   "dependencies": {
     "@questdb/nodejs-client": "^4.0.2",
-    "@types/pg": "^8.15.5",
-    "pg": "^8.16.3",
-    "postgres": "^3.4.7",
-    "redis": "^5.8.2"
+    "postgres": "^3.4.7"
   }
 }

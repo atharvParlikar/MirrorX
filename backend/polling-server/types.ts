@@ -1,13 +1,19 @@
 export type MarkPriceWsMessage = {
-  e: string,
-  E: number,
-  s: string,
-  a: number,
-  p: number,
-  q: string,
-  f: number,
-  l: number,
-  T: number,
-  m: boolean,
-  M: boolean,
-}
+  stream: string,
+  data: {
+    e: string,
+    E: number,
+    s: string,
+    p: string,
+    P: string,
+    i: string,
+    r: string,
+    T: number
+  }
+};
+
+export type PriceUpdate = {
+  symbol: string,
+  buy: number,
+  sell: number,
+};
