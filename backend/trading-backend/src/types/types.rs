@@ -2,6 +2,8 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 
+use crate::types::positions::Position;
+
 //
 // === Requests & Responses ===
 //
@@ -14,9 +16,7 @@ pub struct SignupRequest {
 
 #[derive(Serialize)]
 pub struct GenericResponse {
-    pub success: bool,
     pub message: String,
-    pub error: String,
 }
 
 #[derive(Clone)]
@@ -30,7 +30,7 @@ pub struct AppState {
 // === Domain Models ===
 //
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct OpenOrderRequest {
     pub r#type: String, // "buy" | "sell"
     pub qty: Decimal,
@@ -40,14 +40,9 @@ pub struct OpenOrderRequest {
     pub leverage: Option<Decimal>,
 }
 
-pub struct Position {
-    pub user_id: String,
-    pub asset: String,
-    pub entry_price: Decimal,
-    pub qty: Decimal,
-    pub stop_loss: Option<Decimal>,
-    pub take_profit: Option<Decimal>,
-    pub leverage: Option<Decimal>,
+#[derive(Serialize, Clone)]
+pub struct OpenOrderResponse {
+    pub order_id: String,
 }
 
 //
@@ -90,11 +85,7 @@ pub enum WalletManagerMsg {
     Create {
         user_id: String,
         responder: oneshot::Sender<Result<(), String>>,
-    }, // ReserveMargin {
-       //     user_id: String,
-       //     amount: Decimal,
-       //     responder: oneshot::Sender<Result<(), String>>,
-       // },
+    },
 }
 
 // --- PositionManager messages ---
@@ -102,15 +93,28 @@ pub enum PositionManagerMsg {
     Open {
         user_id: String,
         order: OpenOrderRequest,
-        responder: oneshot::Sender<Result<Position, String>>,
+        responder: oneshot::Sender<Result<String, String>>,
     },
     Close {
         user_id: String,
-        asset: String,
+        position_id: String,
         responder: oneshot::Sender<Result<(), String>>,
     },
     List {
         user_id: String,
-        responder: oneshot::Sender<Vec<Position>>,
+        responder: oneshot::Sender<Option<Vec<Position>>>,
     },
+}
+
+#[derive(Deserialize)]
+pub struct PriceUpdates {
+    pub buy: Decimal,
+    pub sell: Decimal,
+    pub symbol: String,
+}
+
+#[derive(Debug)]
+pub struct CurrentPrice {
+    pub bid: Decimal,
+    pub ask: Decimal,
 }

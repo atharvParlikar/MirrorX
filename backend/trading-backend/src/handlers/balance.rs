@@ -19,9 +19,7 @@ pub async fn balance_handler(
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(GenericResponse {
-                    success: false,
                     message: "".to_string(),
-                    error: "Missing Authorization header".to_string(),
                 }),
             );
         }
@@ -32,9 +30,7 @@ pub async fn balance_handler(
         return (
             StatusCode::BAD_REQUEST,
             Json(GenericResponse {
-                success: false,
                 message: "".to_string(),
-                error: "Invalid Authorization header format".to_string(),
             }),
         );
     }
@@ -49,9 +45,7 @@ pub async fn balance_handler(
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(GenericResponse {
-                success: false,
                 message: "".to_string(),
-                error: "could not process request".to_string(),
             }),
         );
     }
@@ -61,25 +55,19 @@ pub async fn balance_handler(
         Ok(Some(balance_json)) => (
             StatusCode::OK,
             Json(GenericResponse {
-                success: true,
                 message: balance_json.to_string(),
-                error: "".to_string(),
             }),
         ),
         Ok(None) => (
             StatusCode::BAD_REQUEST,
             Json(GenericResponse {
-                success: false,
                 message: "".to_string(),
-                error: "Failed to get balance, check request.".to_string(),
             }),
         ),
         Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(GenericResponse {
-                success: false,
                 message: "".to_string(),
-                error: "could not process request".to_string(),
             }),
         ),
     }

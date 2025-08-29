@@ -1,15 +1,22 @@
+use std::sync::Arc;
+
+use arc_swap::ArcSwap;
 use axum::{
     routing::{get, post},
     Router,
 };
-use std::collections::HashMap;
+use redis::Client;
+use rust_decimal_macros::dec;
 use tokio::sync::mpsc;
-use uuid::Uuid;
 
 use crate::{
     handlers::{balance::balance_handler, order::open_order_handler, signup::signup_handler},
     types::{
-        types::{AppState, Position, PositionManagerMsg, UserManagerMsg, WalletManagerMsg},
+        positions::Positions,
+        types::{
+            AppState, CurrentPrice, PositionManagerMsg, PriceUpdates, UserManagerMsg,
+            WalletManagerMsg,
+        },
         users::Users,
         wallet::Wallets,
     },
@@ -20,9 +27,17 @@ mod types;
 
 #[tokio::main]
 async fn main() {
+    let redis_client = Client::open("redis://127.0.0.1/").unwrap();
+    let mut con = redis_client.get_connection().unwrap();
+
+    let mut latestPrice = Arc::new(ArcSwap::from(Arc::new(CurrentPrice {
+        bid: dec!(0),
+        ask: dec!(0),
+    })));
+
     let users: Users = Users::new();
     let wallets: Wallets = Wallets::new();
-    let position_map: HashMap<String, Vec<Position>> = HashMap::new();
+    let mut positions: Positions = Positions::new(latestPrice.clone());
 
     let (user_tx, mut user_rx) = mpsc::unbounded_channel::<UserManagerMsg>();
     let (wallet_tx, mut wallet_rx) = mpsc::unbounded_channel::<WalletManagerMsg>();
@@ -37,6 +52,24 @@ async fn main() {
             wallet_tx: wallet_tx.clone(),
             position_tx: position_tx.clone(),
         });
+
+    tokio::task::spawn_blocking(move || {
+        let mut pubsub = con.as_pubsub();
+
+        loop {
+            let msg = pubsub.get_message().unwrap();
+            let payload: String = msg.get_payload().unwrap();
+
+            let prices: PriceUpdates = serde_json::from_str(payload.as_str()).unwrap();
+
+            let newPrices = Arc::new(CurrentPrice {
+                bid: prices.buy,
+                ask: prices.sell,
+            });
+
+            latestPrice.store(newPrices);
+        }
+    });
 
     // Manages users
     tokio::spawn(async move {
@@ -99,12 +132,53 @@ async fn main() {
                 }
                 WalletManagerMsg::Create { user_id, responder } => match wallets.create(user_id) {
                     Some(_) => {
-                        responder.send(Ok(()));
+                        if let Err(_) = responder.send(Ok(())) {
+                            eprintln!("[ERROR] responder connection closed");
+                        }
                     }
                     None => {
-                        responder.send(Err("Could not create wallet".to_string()));
+                        if let Err(_) = responder.send(Err("Could not create wallet".to_string())) {
+                            eprintln!("[ERROR] responder connection closed");
+                        }
                     }
                 },
+            }
+        }
+    });
+
+    // Position manager thread
+    tokio::spawn(async move {
+        while let Some(msg) = position_rx.recv().await {
+            match msg {
+                PositionManagerMsg::Open {
+                    user_id,
+                    order,
+                    responder,
+                } => {
+                    match positions.open(user_id, order, wallet_tx.clone()).await {
+                        Ok(position_id) => responder.send(Ok(position_id)).unwrap(),
+                        Err(err) => responder.send(Err(err)).unwrap(),
+                    };
+                }
+                PositionManagerMsg::Close {
+                    user_id,
+                    position_id,
+                    responder,
+                } => {
+                    match positions
+                        .close(&user_id, position_id, wallet_tx.clone())
+                        .await
+                    {
+                        Ok(_) => responder.send(Ok(())).unwrap(),
+                        Err(err) => responder.send(Err(err)).unwrap(),
+                    };
+                }
+                PositionManagerMsg::List { user_id, responder } => {
+                    match positions.list(&user_id) {
+                        Ok(positions_list) => responder.send(Some(positions_list)).unwrap(),
+                        Err(_) => responder.send(None).unwrap(),
+                    };
+                }
             }
         }
     });

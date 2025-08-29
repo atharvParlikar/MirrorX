@@ -23,41 +23,26 @@ pub async fn signup_handler(
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(GenericResponse {
-                success: false,
                 message: "".to_string(),
-                error: "could not process request".to_string(),
             }),
         );
     }
 
     match oneshot_rx.await {
         Ok(Ok(msg)) => {
-            return (
-                StatusCode::CREATED,
-                Json(GenericResponse {
-                    success: false,
-                    message: msg,
-                    error: "".to_string(),
-                }),
-            );
+            return (StatusCode::CREATED, Json(GenericResponse { message: msg }));
         }
-        Ok(Err(msg)) => {
+        Ok(Err(err)) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(GenericResponse {
-                    success: false,
-                    message: "".to_string(),
-                    error: msg,
-                }),
+                Json(GenericResponse { message: err }),
             );
         }
         Err(_) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(GenericResponse {
-                    success: false,
                     message: "".to_string(),
-                    error: "could not process request".to_string(),
                 }),
             );
         }
