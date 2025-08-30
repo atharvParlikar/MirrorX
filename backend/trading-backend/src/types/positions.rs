@@ -56,7 +56,7 @@ impl Positions {
             Err(err) => return Err(err.to_string()),
         };
 
-        let current_price = if order.qty > dec!(0) {
+        let current_price = if order.qty < dec!(0) {
             self.latest_price.load().bid
         } else {
             self.latest_price.load().ask
@@ -74,6 +74,8 @@ impl Positions {
             return Err("Margin cannot be negative".to_string());
         }
 
+        let amount_required = current_price * order.qty.abs() + margin;
+
         if balance < current_price * order.qty.abs() + margin {
             return Err(format!(
                 "Not enough balance, Balance: {}, Needed: {}",
@@ -81,6 +83,17 @@ impl Positions {
                 current_price * order.qty.abs() + margin,
             ));
         }
+
+        let (oneshot_tx, oneshot_rx) = oneshot::channel::<Result<(), String>>();
+        wallet_tx
+            .send(WalletManagerMsg::Debit {
+                user_id: user_id.clone(),
+                amount: amount_required,
+                responder: oneshot_tx,
+            })
+            .map_err(|err| err.to_string())?;
+
+        oneshot_rx.await.map_err(|err| err.to_string())??;
 
         let pnl = (current_price * order.qty) - (entry_price * order.qty);
         let position_id = nanoid::nanoid!();
@@ -189,7 +202,9 @@ impl Positions {
                 position.pnl =
                     (current_price * position.qty) - (position.entry_price * position.qty);
 
-                let margin = (position.entry_price * position.qty.abs()) + position.margin;
+                let margin = ((position.entry_price * position.qty.abs())
+                    / position.leverage.unwrap_or(dec!(1)))
+                    + position.margin;
 
                 if margin < (position.pnl + position.margin) * LIQUIDATION_THRESHOLD {
                     positions_to_liquidate.push((user_id.clone(), position.position_id.clone()));
@@ -215,29 +230,14 @@ impl Positions {
         }
 
         for (user_id, position_id) in positions_to_liquidate {
-            let positions = self.position_map.get_mut(&user_id).unwrap();
+            let positions = self.position_map.get(&user_id).unwrap();
             let position = positions
                 .iter()
                 .find(|p| p.position_id == position_id)
                 .unwrap();
 
-            let (oneshot_tx, oneshot_rx) = oneshot::channel::<Result<(), String>>();
-
-            wallet_tx
-                .send(WalletManagerMsg::Credit {
-                    user_id: user_id,
-                    amount: (position.entry_price * position.qty.abs()) + position.pnl,
-                    responder: oneshot_tx,
-                })
-                .map_err(|_| "[POSITIONS UPDATE_RISK ERROR] cannot send wallet message")?;
-
-            oneshot_rx.await.map_err(|x| x.to_string())??;
-
-            //  TODO: Inform user that they got liquidated
-
-            if let Some(idx) = positions.iter().position(|p| p.position_id == position_id) {
-                positions.swap_remove(idx);
-            };
+            self.close(&user_id, position.position_id.clone(), wallet_tx.clone())
+                .await?;
         }
 
         Ok(())

@@ -35,7 +35,6 @@ pub struct AppState {
 
 #[derive(Deserialize, Clone)]
 pub struct OpenOrderRequest {
-    pub r#type: String, // "buy" | "sell"
     pub qty: Decimal,
     pub asset: String,
     pub margin: Option<Decimal>,

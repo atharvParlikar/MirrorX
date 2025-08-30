@@ -37,18 +37,6 @@ pub async fn open_order_handler(
 
     let user_id = parts[1].to_string();
 
-    if payload.r#type != "buy" && payload.r#type != "sell" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(GenericResponse {
-                message: format!(
-                    "Invalid order, {} call is not supported, either make buy or sell",
-                    payload.r#type
-                ),
-            }),
-        ));
-    }
-
     if payload.asset != "BTC" {
         return Err((
             StatusCode::BAD_REQUEST,
