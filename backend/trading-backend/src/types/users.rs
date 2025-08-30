@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use uuid::Uuid;
+use rust_decimal_macros::dec;
+use tokio::sync::{mpsc, oneshot};
+
+use crate::types::types::WalletManagerMsg;
 
 pub struct User {
     pub id: String,
@@ -18,17 +21,34 @@ impl Users {
         }
     }
 
-    pub fn create_user(&mut self, username: String) -> Result<String, String> {
-        let user_id = Uuid::new_v4().to_string();
-        match self.user_map.insert(
+    pub async fn create_user(
+        &mut self,
+        username: String,
+        wallet_sender: mpsc::UnboundedSender<WalletManagerMsg>,
+    ) -> Result<String, String> {
+        let user_id = nanoid::nanoid!();
+        self.user_map.insert(
             user_id.clone(),
             User {
                 id: user_id.to_string(),
                 username: username,
             },
-        ) {
-            Some(user) => Ok(user.id),
-            None => Err("Could not create user".to_string()),
-        }
+        );
+
+        let (oneshot_tx, oneshot_rx) = oneshot::channel::<Result<(), String>>();
+
+        wallet_sender
+            .send(WalletManagerMsg::Create {
+                user_id: user_id.clone(),
+                responder: oneshot_tx,
+            })
+            .map_err(|_| "could not create wallet, canceling user creation".to_string())?;
+
+        oneshot_rx.await.map_err(|_| {
+            //  TODO: delete user here...
+            return "could not create wallet, canceling user creation".to_string();
+        })??;
+
+        Ok(user_id)
     }
 }

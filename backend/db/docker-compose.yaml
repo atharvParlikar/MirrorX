@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  postgres-users:
+    image: postgres:16
+    container_name: postgres-users
+    restart: always
+    environment:
+      POSTGRES_USER: users_admin
+      POSTGRES_PASSWORD: supersecret
+      POSTGRES_DB: usersdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_users_data:/var/lib/postgresql/data
+
+  timescaledb-series:
+    image: timescale/timescaledb:latest-pg16
+    container_name: timescaledb-series
+    restart: always
+    environment:
+      POSTGRES_USER: ts_admin
+      POSTGRES_PASSWORD: ultrasecret
+      POSTGRES_DB: timeseriesdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_timescale_data:/var/lib/postgresql/data
+
+volumes:
+  pg_users_data:
+  pg_timescale_data:

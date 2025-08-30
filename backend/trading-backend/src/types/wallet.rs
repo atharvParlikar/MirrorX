@@ -34,13 +34,19 @@ impl Wallets {
         }
     }
 
-    pub fn create(&mut self, user_id: String) -> Option<Wallet> {
+    pub fn create(&mut self, user_id: String) -> Result<(), String> {
+        if self.wallet_map.contains_key(&user_id) {
+            return Err("Wallet already exists".to_string());
+        }
+
         self.wallet_map.insert(
             user_id.clone(),
             Wallet {
                 user_id: user_id.clone(),
                 balance: dec!(10_000.0),
             },
-        )
+        );
+
+        Ok(())
     }
 }

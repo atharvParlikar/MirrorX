@@ -4,9 +4,10 @@ use arc_swap::ArcSwapAny;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use uuid::Uuid;
 
 use crate::types::types::{CurrentPrice, OpenOrderRequest, WalletManagerMsg};
+
+const LIQUIDATION_THRESHOLD: Decimal = dec!(0.1);
 
 #[derive(Clone, Debug)]
 pub struct Position {
@@ -15,6 +16,7 @@ pub struct Position {
     pub entry_price: Decimal,
     pub qty: Decimal,
     pub pnl: Decimal,
+    pub margin: Decimal,
     pub stop_loss: Option<Decimal>,
     pub take_profit: Option<Decimal>,
     pub leverage: Option<Decimal>,
@@ -27,10 +29,10 @@ pub struct Positions {
 }
 
 impl Positions {
-    pub fn new(latestPrice: Arc<ArcSwapAny<Arc<CurrentPrice>>>) -> Positions {
+    pub fn new(latest_price: Arc<ArcSwapAny<Arc<CurrentPrice>>>) -> Positions {
         return Positions {
             position_map: HashMap::new(),
-            latest_price: latestPrice,
+            latest_price,
         };
     }
 
@@ -66,15 +68,22 @@ impl Positions {
             self.latest_price.load().bid
         };
 
-        if balance < current_price * order.qty.abs() {
+        let margin = order.margin.unwrap_or(dec!(0));
+
+        if margin < dec!(0) {
+            return Err("Margin cannot be negative".to_string());
+        }
+
+        if balance < current_price * order.qty.abs() + margin {
             return Err(format!(
                 "Not enough balance, Balance: {}, Needed: {}",
-                balance, current_price,
+                balance,
+                current_price * order.qty.abs() + margin,
             ));
         }
 
         let pnl = (current_price * order.qty) - (entry_price * order.qty);
-        let position_id = Uuid::new_v4().to_string();
+        let position_id = nanoid::nanoid!();
 
         let position = Position {
             position_id: position_id.clone(),
@@ -82,6 +91,7 @@ impl Positions {
             entry_price: entry_price,
             qty: order.qty,
             pnl: pnl,
+            margin: margin,
             stop_loss: order.stop_loss,
             take_profit: order.take_profit,
             leverage: order.leverage,
@@ -159,5 +169,77 @@ impl Positions {
             Some(position_list) => Ok(position_list.clone()),
             None => Err("Could not find user positions".to_string()),
         }
+    }
+
+    pub async fn update_risk(
+        &mut self,
+        wallet_tx: UnboundedSender<WalletManagerMsg>,
+    ) -> Result<(), String> {
+        let latest_price = self.latest_price.load();
+        let mut positions_to_liquidate: Vec<(String, String)> = Vec::new(); // vec of position_ids
+
+        for (user_id, positions) in self.position_map.iter_mut() {
+            for position in positions {
+                let current_price = if position.qty < dec!(0) {
+                    latest_price.bid
+                } else {
+                    latest_price.ask
+                };
+
+                position.pnl =
+                    (current_price * position.qty) - (position.entry_price * position.qty);
+
+                let margin = (position.entry_price * position.qty.abs()) + position.margin;
+
+                if margin < (position.pnl + position.margin) * LIQUIDATION_THRESHOLD {
+                    positions_to_liquidate.push((user_id.clone(), position.position_id.clone()));
+                    break;
+                }
+
+                if let Some(stop_loss_threshold) = position.stop_loss {
+                    if position.pnl <= -stop_loss_threshold {
+                        positions_to_liquidate
+                            .push((user_id.clone(), position.position_id.clone()));
+                        break;
+                    }
+                }
+
+                if let Some(take_profit_threshold) = position.take_profit {
+                    if position.pnl >= take_profit_threshold {
+                        positions_to_liquidate
+                            .push((user_id.clone(), position.position_id.clone()));
+                        break;
+                    }
+                }
+            }
+        }
+
+        for (user_id, position_id) in positions_to_liquidate {
+            let positions = self.position_map.get_mut(&user_id).unwrap();
+            let position = positions
+                .iter()
+                .find(|p| p.position_id == position_id)
+                .unwrap();
+
+            let (oneshot_tx, oneshot_rx) = oneshot::channel::<Result<(), String>>();
+
+            wallet_tx
+                .send(WalletManagerMsg::Credit {
+                    user_id: user_id,
+                    amount: (position.entry_price * position.qty.abs()) + position.pnl,
+                    responder: oneshot_tx,
+                })
+                .map_err(|_| "[POSITIONS UPDATE_RISK ERROR] cannot send wallet message")?;
+
+            oneshot_rx.await.map_err(|x| x.to_string())??;
+
+            //  TODO: Inform user that they got liquidated
+
+            if let Some(idx) = positions.iter().position(|p| p.position_id == position_id) {
+                positions.swap_remove(idx);
+            };
+        }
+
+        Ok(())
     }
 }

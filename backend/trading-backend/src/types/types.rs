@@ -1,6 +1,9 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::{
+    mpsc::{self, UnboundedSender},
+    oneshot,
+};
 
 use crate::types::positions::Position;
 
@@ -35,6 +38,7 @@ pub struct OpenOrderRequest {
     pub r#type: String, // "buy" | "sell"
     pub qty: Decimal,
     pub asset: String,
+    pub margin: Option<Decimal>,
     pub stop_loss: Option<Decimal>,
     pub take_profit: Option<Decimal>,
     pub leverage: Option<Decimal>,
@@ -104,6 +108,7 @@ pub enum PositionManagerMsg {
         user_id: String,
         responder: oneshot::Sender<Option<Vec<Position>>>,
     },
+    UpdateRisk,
 }
 
 #[derive(Deserialize)]

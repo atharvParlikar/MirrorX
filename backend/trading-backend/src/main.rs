@@ -30,14 +30,14 @@ async fn main() {
     let redis_client = Client::open("redis://127.0.0.1/").unwrap();
     let mut con = redis_client.get_connection().unwrap();
 
-    let mut latestPrice = Arc::new(ArcSwap::from(Arc::new(CurrentPrice {
+    let latest_price = Arc::new(ArcSwap::from(Arc::new(CurrentPrice {
         bid: dec!(0),
         ask: dec!(0),
     })));
 
-    let users: Users = Users::new();
+    let mut users: Users = Users::new();
     let wallets: Wallets = Wallets::new();
-    let mut positions: Positions = Positions::new(latestPrice.clone());
+    let mut positions: Positions = Positions::new(latest_price.clone());
 
     let (user_tx, mut user_rx) = mpsc::unbounded_channel::<UserManagerMsg>();
     let (wallet_tx, mut wallet_rx) = mpsc::unbounded_channel::<WalletManagerMsg>();
@@ -62,20 +62,34 @@ async fn main() {
 
             let prices: PriceUpdates = serde_json::from_str(payload.as_str()).unwrap();
 
-            let newPrices = Arc::new(CurrentPrice {
+            let new_prices = Arc::new(CurrentPrice {
                 bid: prices.buy,
                 ask: prices.sell,
             });
 
-            latestPrice.store(newPrices);
+            latest_price.store(new_prices);
+            if let Err(err) = position_tx.send(PositionManagerMsg::UpdateRisk) {
+                eprintln!("[ERRORT UPDATRE RISK MESSAGE] {}", err);
+            }
         }
     });
+
+    //  HACK:
+    let wallet_tx_ = wallet_tx.clone();
 
     // Manages users
     tokio::spawn(async move {
         while let Some(msg) = user_rx.recv().await {
             match msg {
-                UserManagerMsg::Create(create_msg) => {}
+                UserManagerMsg::Create(create_msg) => {
+                    match users
+                        .create_user(create_msg.username, wallet_tx_.clone())
+                        .await
+                    {
+                        Ok(user_id) => create_msg.responder.send(Ok(user_id)).unwrap(),
+                        Err(err) => create_msg.responder.send(Err(err)).unwrap(),
+                    };
+                }
             };
         }
     });
@@ -131,13 +145,13 @@ async fn main() {
                     .unwrap();
                 }
                 WalletManagerMsg::Create { user_id, responder } => match wallets.create(user_id) {
-                    Some(_) => {
+                    Ok(_) => {
                         if let Err(_) = responder.send(Ok(())) {
                             eprintln!("[ERROR] responder connection closed");
                         }
                     }
-                    None => {
-                        if let Err(_) = responder.send(Err("Could not create wallet".to_string())) {
+                    Err(err) => {
+                        if let Err(_) = responder.send(Err(err)) {
                             eprintln!("[ERROR] responder connection closed");
                         }
                     }
@@ -178,6 +192,9 @@ async fn main() {
                         Ok(positions_list) => responder.send(Some(positions_list)).unwrap(),
                         Err(_) => responder.send(None).unwrap(),
                     };
+                }
+                PositionManagerMsg::UpdateRisk => {
+                    positions.update_risk(wallet_tx.clone()).await.unwrap();
                 }
             }
         }

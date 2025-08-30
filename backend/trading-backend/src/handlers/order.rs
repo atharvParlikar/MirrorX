@@ -5,7 +5,6 @@ use axum::{
     extract::{Json, State},
     http::{HeaderMap, StatusCode},
 };
-use rust_decimal_macros::dec;
 use tokio::sync::oneshot;
 
 pub async fn open_order_handler(
@@ -50,6 +49,18 @@ pub async fn open_order_handler(
         ));
     }
 
+    if payload.asset != "BTC" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(GenericResponse {
+                message: format!(
+                    "Invalid order, {} is not traded on MirrorX, place an order on a valid traded asset like BTC.",
+                    payload.asset
+                ),
+            }),
+        ));
+    }
+
     // for now just trust the jwt (it ain't even jwt)
     //  TODO: We shall do the proper auth on Sat afternoon
 
@@ -68,19 +79,15 @@ pub async fn open_order_handler(
         ));
     }
 
-    println!("got here");
-
     let order_id = match oneshot_rx.await {
         Ok(Ok(position_id)) => position_id,
         Ok(Err(err)) => {
-            println!("fucked 1");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(GenericResponse { message: err }),
             ));
         }
         Err(err) => {
-            println!("fucked 2");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(GenericResponse {
@@ -89,8 +96,6 @@ pub async fn open_order_handler(
             ));
         }
     };
-
-    println!("really nigga?");
 
     Ok((
         StatusCode::OK,
