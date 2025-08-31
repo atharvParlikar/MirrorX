@@ -1,6 +1,6 @@
 import { createClient } from "redis";
 import { broadcast, deserialize, serialize } from "./utils";
-import type { LiquidationMessage, PriceUpdates } from "./types";
+import type { LiquidationMessage } from "./types";
 
 const client = await createClient().on("error", (err) => console.error("Redis client Error", err)).connect();
 

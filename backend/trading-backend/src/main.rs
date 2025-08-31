@@ -10,7 +10,11 @@ use rust_decimal_macros::dec;
 use tokio::sync::mpsc;
 
 use crate::{
-    handlers::{balance::balance_handler, order::open_order_handler, signup::signup_handler},
+    handlers::{
+        balance::balance_handler,
+        order::{close_order_handler, open_order_handler, order_list_handler},
+        signup::signup_handler,
+    },
     types::{
         positions::Positions,
         types::{
@@ -47,6 +51,8 @@ async fn main() {
         .route("/signup", post(signup_handler))
         .route("/balance", get(balance_handler))
         .route("/order/open", post(open_order_handler))
+        .route("/order/close", post(close_order_handler))
+        .route("/order/list", get(order_list_handler))
         .with_state(AppState {
             user_tx: user_tx.clone(),
             wallet_tx: wallet_tx.clone(),
@@ -55,6 +61,8 @@ async fn main() {
 
     tokio::task::spawn_blocking(move || {
         let mut pubsub = con.as_pubsub();
+
+        pubsub.subscribe("priceUpdates").unwrap();
 
         loop {
             let msg = pubsub.get_message().unwrap();
@@ -67,7 +75,8 @@ async fn main() {
                 ask: prices.sell,
             });
 
-            latest_price.store(new_prices);
+            latest_price.store(new_prices.clone());
+
             if let Err(err) = position_tx.send(PositionManagerMsg::UpdateRisk) {
                 eprintln!("[ERRORT UPDATRE RISK MESSAGE] {}", err);
             }
@@ -82,13 +91,17 @@ async fn main() {
         while let Some(msg) = user_rx.recv().await {
             match msg {
                 UserManagerMsg::Create(create_msg) => {
-                    match users
+                    let sent = match users
                         .create_user(create_msg.username, wallet_tx_.clone())
                         .await
                     {
-                        Ok(user_id) => create_msg.responder.send(Ok(user_id)).unwrap(),
-                        Err(err) => create_msg.responder.send(Err(err)).unwrap(),
+                        Ok(user_id) => create_msg.responder.send(Ok(user_id)),
+                        Err(err) => create_msg.responder.send(Err(err)),
                     };
+
+                    if let Err(_) = sent {
+                        eprintln!("[error responding to create user message]");
+                    }
                 }
             };
         }
@@ -105,9 +118,10 @@ async fn main() {
                     responder,
                 } => match wallets.get_balance(&user_id) {
                     Some(current_balance) => {
-                        wallets
-                            .update_balance(user_id, current_balance + amount)
-                            .unwrap();
+                        if let Err(err) = wallets.update_balance(user_id, current_balance + amount)
+                        {
+                            eprintln!("{}", err);
+                        }
                         if let Err(_) = responder.send(Ok(())) {
                             eprintln!("[ERROR] wallet oneshot channel closed");
                         }
@@ -124,9 +138,10 @@ async fn main() {
                     responder,
                 } => match wallets.get_balance(&user_id) {
                     Some(current_balance) => {
-                        wallets
-                            .update_balance(user_id, current_balance - amount)
-                            .unwrap();
+                        if let Err(err) = wallets.update_balance(user_id, current_balance - amount)
+                        {
+                            eprintln!("{}", err);
+                        }
                         if let Err(_) = responder.send(Ok(())) {
                             eprintln!("[ERROR] wallet oneshot channel closed");
                         }
@@ -138,11 +153,14 @@ async fn main() {
                     }
                 },
                 WalletManagerMsg::GetBalance { user_id, responder } => {
-                    match wallets.get_balance(&user_id) {
+                    let sent = match wallets.get_balance(&user_id) {
                         Some(balance) => responder.send(Some(balance)),
                         None => responder.send(None),
+                    };
+
+                    if let Err(_) = sent {
+                        println!("[ERROR RESPONDING BACK TO GET BALANCE]");
                     }
-                    .unwrap();
                 }
                 WalletManagerMsg::Create { user_id, responder } => match wallets.create(user_id) {
                     Ok(_) => {
@@ -169,32 +187,48 @@ async fn main() {
                     order,
                     responder,
                 } => {
-                    match positions.open(user_id, order, wallet_tx.clone()).await {
-                        Ok(position_id) => responder.send(Ok(position_id)).unwrap(),
-                        Err(err) => responder.send(Err(err)).unwrap(),
+                    let sent = match positions.open(user_id, order, wallet_tx.clone()).await {
+                        Ok(position_id) => responder.send(Ok(position_id)),
+                        Err(err) => responder.send(Err(err)),
                     };
+
+                    if let Err(_) = sent {
+                        eprintln!("[ERROR RESPONDING TO POSITION OPEN MSG]");
+                    }
                 }
                 PositionManagerMsg::Close {
                     user_id,
                     position_id,
                     responder,
                 } => {
-                    match positions
+                    let sent = match positions
                         .close(&user_id, position_id, wallet_tx.clone())
                         .await
                     {
-                        Ok(_) => responder.send(Ok(())).unwrap(),
-                        Err(err) => responder.send(Err(err)).unwrap(),
+                        Ok(_) => responder.send(Ok(())),
+                        Err(err) => responder.send(Err(err)),
                     };
+
+                    if let Err(_) = sent {
+                        eprintln!("[ERROR RESPONDING TO POSITION CLOSE MSG]");
+                    }
                 }
                 PositionManagerMsg::List { user_id, responder } => {
-                    match positions.list(&user_id) {
-                        Ok(positions_list) => responder.send(Some(positions_list)).unwrap(),
-                        Err(_) => responder.send(None).unwrap(),
+                    let sent = match positions.list(&user_id) {
+                        Ok(positions_list) => responder.send(Some(positions_list)),
+                        Err(_) => responder.send(None),
                     };
+                    if let Err(_) = sent {
+                        eprintln!("[ERROR RESPONDING TO POSITION LIST MSG]")
+                    }
                 }
                 PositionManagerMsg::UpdateRisk => {
-                    positions.update_risk(wallet_tx.clone()).await.unwrap();
+                    match positions.update_risk(wallet_tx.clone()).await {
+                        Ok(_) => {}
+                        Err(x) => {
+                            eprintln!("[UDPATE RISK PANIC]");
+                        }
+                    }
                 }
             }
         }

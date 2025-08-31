@@ -1,9 +1,6 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{
-    mpsc::{self, UnboundedSender},
-    oneshot,
-};
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 
 use crate::types::positions::Position;
 
@@ -43,9 +40,24 @@ pub struct OpenOrderRequest {
     pub leverage: Option<Decimal>,
 }
 
+#[derive(Deserialize, Clone)]
+pub struct CloseOrderRequest {
+    pub order_id: String,
+}
+
 #[derive(Serialize, Clone)]
 pub struct OpenOrderResponse {
     pub order_id: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct CloseOrderResponse {
+    pub message: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct GetListResponse {
+    pub positions: Vec<Position>,
 }
 
 //
