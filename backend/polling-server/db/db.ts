@@ -1,15 +1,26 @@
-import { Sender } from "@questdb/nodejs-client";
+import { Pool } from "pg";
 
-export async function sendPrice(price: number) {
-  // Connect to QuestDB ILP (default port 9009, NOT 9000)
-  const sender = await Sender.fromConfig("http::addr=localhost:9000;");
+const pool = new Pool({
+  host: "localhost",
+  port: 5433,
+  user: "ts_admin",
+  password: "ultrasecret",
+  database: "timeseriesdb",
+});
 
-  await sender
-    .table("price_ticks")
-    .symbol("symbol", "BTC")
-    .floatColumn("price", price)
-    .atNow(); // uses current timestamp
-
-  await sender.flush();
-  await sender.close();
+// insert a price into ticks
+export async function insertTick(symbol: string, price: number,) {
+  const client = await pool.connect();
+  try {
+    const query = `
+      INSERT INTO ticks (time, symbol, price)
+      VALUES (NOW(), $1, $2)
+      RETURNING *;
+    `;
+    const values = [symbol, price];
+    const result = await client.query(query, values);
+    return result.rows[0];
+  } finally {
+    client.release(); // important
+  }
 }

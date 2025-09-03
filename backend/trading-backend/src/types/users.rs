@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use rust_decimal_macros::dec;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::types::types::WalletManagerMsg;

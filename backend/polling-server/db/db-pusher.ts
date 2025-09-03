@@ -1,13 +1,13 @@
 import { createClient } from "redis";
 import type { PriceUpdate } from "../types";
-import { sendPrice } from "./db.ts";
+import { insertTick } from "./db.ts";
 
 const client = createClient();
 await client.connect();
 
 async function pushUpdatesToDb(priceUpdate: PriceUpdate) {
   const price = (priceUpdate.buy + priceUpdate.sell) / 2;
-  await sendPrice(price);
+  await insertTick("BTC", price);
   console.log("price inserted");
 }
 

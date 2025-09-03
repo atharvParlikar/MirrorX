@@ -216,23 +216,22 @@ impl Positions {
                     latest_price.ask
                 };
 
-                position.pnl =
-                    (current_price * position.qty) - (position.entry_price * position.qty);
+                position.pnl = (current_price - position.entry_price)
+                    * position.qty
+                    * position.leverage.unwrap_or(dec!(1));
 
-                let margin = ((position.entry_price * position.qty.abs())
-                    / position.leverage.unwrap_or(dec!(1)))
-                    + position.margin;
+                let initial_margin = (position.entry_price * position.qty.abs()) + position.margin;
 
-                if margin < (position.pnl + position.margin) * LIQUIDATION_THRESHOLD {
+                let current_margin = initial_margin + position.pnl;
+
+                if initial_margin * LIQUIDATION_THRESHOLD >= current_margin {
                     positions_to_liquidate.push((user_id.clone(), position.position_id.clone()));
-                    break;
                 }
 
                 if let Some(stop_loss_threshold) = position.stop_loss {
-                    if position.pnl <= -stop_loss_threshold {
+                    if position.pnl <= stop_loss_threshold {
                         positions_to_liquidate
                             .push((user_id.clone(), position.position_id.clone()));
-                        break;
                     }
                 }
 
@@ -240,7 +239,6 @@ impl Positions {
                     if position.pnl >= take_profit_threshold {
                         positions_to_liquidate
                             .push((user_id.clone(), position.position_id.clone()));
-                        break;
                     }
                 }
             }
