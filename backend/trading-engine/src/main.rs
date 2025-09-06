@@ -1,29 +1,14 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use axum::{
-    routing::{get, post},
-    Router,
-};
-use redis::Client;
 use rust_decimal_macros::dec;
 use tokio::sync::mpsc;
 
-use crate::{
-    handlers::{
-        balance::balance_handler,
-        order::{close_order_handler, open_order_handler, order_list_handler},
-        signup::signup_handler,
-    },
-    types::{
-        positions::Positions,
-        types::{
-            AppState, CurrentPrice, PositionManagerMsg, PriceUpdates, UserManagerMsg,
-            WalletManagerMsg,
-        },
-        users::Users,
-        wallet::Wallets,
-    },
+use crate::types::{
+    positions::Positions,
+    types::{CurrentPrice, PositionManagerMsg, UserManagerMsg, WalletManagerMsg},
+    users::Users,
+    wallet::Wallets,
 };
 
 mod handlers;
@@ -31,9 +16,6 @@ mod types;
 
 #[tokio::main]
 async fn main() {
-    let redis_client = Client::open("redis://127.0.0.1/").unwrap();
-    let mut con = redis_client.get_connection().unwrap();
-
     let latest_price = Arc::new(ArcSwap::from(Arc::new(CurrentPrice {
         bid: dec!(0),
         ask: dec!(0),
@@ -46,42 +28,6 @@ async fn main() {
     let (user_tx, mut user_rx) = mpsc::unbounded_channel::<UserManagerMsg>();
     let (wallet_tx, mut wallet_rx) = mpsc::unbounded_channel::<WalletManagerMsg>();
     let (position_tx, mut position_rx) = mpsc::unbounded_channel::<PositionManagerMsg>();
-
-    let app: Router = Router::new()
-        .route("/signup", post(signup_handler))
-        .route("/balance", get(balance_handler))
-        .route("/order/open", post(open_order_handler))
-        .route("/order/close", post(close_order_handler))
-        .route("/order/list", get(order_list_handler))
-        .with_state(AppState {
-            user_tx: user_tx.clone(),
-            wallet_tx: wallet_tx.clone(),
-            position_tx: position_tx.clone(),
-        });
-
-    tokio::task::spawn_blocking(move || {
-        let mut pubsub = con.as_pubsub();
-
-        pubsub.subscribe("priceUpdates").unwrap();
-
-        loop {
-            let msg = pubsub.get_message().unwrap();
-            let payload: String = msg.get_payload().unwrap();
-
-            let prices: PriceUpdates = serde_json::from_str(payload.as_str()).unwrap();
-
-            let new_prices = Arc::new(CurrentPrice {
-                bid: prices.buy,
-                ask: prices.sell,
-            });
-
-            latest_price.store(new_prices.clone());
-
-            if let Err(err) = position_tx.send(PositionManagerMsg::UpdateRisk) {
-                eprintln!("[ERRORT UPDATRE RISK MESSAGE] {}", err);
-            }
-        }
-    });
 
     //  HACK:
     let wallet_tx_ = wallet_tx.clone();
@@ -234,6 +180,6 @@ async fn main() {
         }
     });
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    tokio::signal::ctrl_c().await.unwrap();
+    println!("Shutting down");
 }

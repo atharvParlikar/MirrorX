@@ -1,17 +1,18 @@
-import rabbit from "rabbitmq-stream-js-client";
+import amqp from "amqplib";
 
-const streamName = "order";
+const queue = "order";
 
-const client = await rabbit.connect({
-  hostname: "localhost",
-  port: 5672,
-  username: "guest",
-  password: "guest",
-  vhost: "/"
+const conn = await amqp.connect("amqp://admin:admin@localhost:5672");
+const channel = await conn.createChannel();
+
+await channel.assertQueue(queue, { durable: true });
+
+channel.sendToQueue(queue, Buffer.from("Hello order queue!"));
+console.log("Message sent");
+
+channel.consume(queue, (msg) => {
+  if (msg !== null) {
+    console.log("Received:", msg.content.toString());
+    channel.ack(msg);
+  }
 });
-
-const streamSizeRetention = 5 * 1e9;
-
-await client.createStream({ stream: streamName, arguments: { "max-length-bytes": streamSizeRetention } });
-
-export const orderPublisher = await client.declarePublisher({ stream: streamName });
