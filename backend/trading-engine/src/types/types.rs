@@ -1,37 +1,17 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::oneshot;
 
 use crate::types::positions::Position;
-
-//
-// === Requests & Responses ===
-//
-
-#[derive(Deserialize)]
-pub struct SignupRequest {
-    pub username: String,
-    pub password: String,
-}
-
-#[derive(Serialize)]
-pub struct GenericResponse {
-    pub message: String,
-}
-
-#[derive(Clone)]
-pub struct AppState {
-    pub user_tx: UnboundedSender<UserManagerMsg>,
-    pub wallet_tx: UnboundedSender<WalletManagerMsg>,
-    pub position_tx: UnboundedSender<PositionManagerMsg>,
-}
 
 //
 // === Domain Models ===
 //
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct OpenOrderRequest {
+    pub order_id: String,
+    pub user_id: String,
     pub qty: Decimal,
     pub asset: String,
     pub margin: Option<Decimal>,
@@ -60,13 +40,29 @@ pub struct GetListResponse {
     pub positions: Vec<Position>,
 }
 
+#[derive(Deserialize, Clone)]
+pub struct IncomingPrices {
+    pub btc: CurrentPrice,
+    pub eth: CurrentPrice,
+    pub sol: CurrentPrice,
+}
+pub struct SignUpRequest {
+    pub email: String,
+}
+
+pub enum KafkaMessages {
+    IncomingPrices(IncomingPrices),
+    Order(OpenOrderRequest),
+    CreateUser(SignUpRequest),
+    InvalidMessage,
+}
+
 //
 // === Actor Messages ===
 //
 
 pub struct CreateUserMessage {
     pub username: String,
-    pub password: String,
     pub responder: oneshot::Sender<Result<String, String>>, // returns user_id or error
 }
 
@@ -129,7 +125,7 @@ pub struct PriceUpdates {
     pub symbol: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CurrentPrice {
     pub bid: Decimal,
     pub ask: Decimal,

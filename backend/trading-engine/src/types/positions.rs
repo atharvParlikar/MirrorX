@@ -103,10 +103,9 @@ impl Positions {
         oneshot_rx.await.map_err(|err| err.to_string())??;
 
         let pnl = (current_price * order.qty) - (entry_price * order.qty);
-        let position_id = nanoid::nanoid!();
 
         let position = Position {
-            position_id: position_id.clone(),
+            position_id: order.order_id.clone(),
             asset: "BTC".to_string(),
             entry_price: entry_price,
             qty: order.qty,
@@ -126,7 +125,7 @@ impl Positions {
             }
         };
 
-        Ok(position_id)
+        Ok(order.order_id.clone())
     }
 
     pub async fn close(

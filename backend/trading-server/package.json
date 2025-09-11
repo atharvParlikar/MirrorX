@@ -13,10 +13,20 @@
     "@types/amqplib": "^0.10.7",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.3.1",
+    "@types/nodemailer": "^7.0.1",
+    "@types/ws": "^8.18.1",
     "amqplib": "^0.10.9",
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "rabbitmq-stream-js-client": "^0.6.2"
+    "hono": "^4.9.6",
+    "jsonwebtoken": "^9.0.2",
+    "kafka-node": "^5.0.0",
+    "kafkajs": "^2.2.4",
+    "nanoid": "^5.1.5",
+    "nodemailer": "^7.0.6",
+    "rabbitmq-stream-js-client": "^0.6.2",
+    "ws": "^8.18.3"
   }
 }

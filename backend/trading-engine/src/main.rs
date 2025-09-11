@@ -2,8 +2,14 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use rust_decimal_macros::dec;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
+use futures::StreamExt;
+use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::{ClientConfig, Message};
+
+use crate::kafka::handle_kafka_message;
+use crate::types::types::KafkaMessages;
 use crate::types::{
     positions::Positions,
     types::{CurrentPrice, PositionManagerMsg, UserManagerMsg, WalletManagerMsg},
@@ -11,7 +17,7 @@ use crate::types::{
     wallet::Wallets,
 };
 
-mod handlers;
+mod kafka;
 mod types;
 
 #[tokio::main]
@@ -29,8 +35,76 @@ async fn main() {
     let (wallet_tx, mut wallet_rx) = mpsc::unbounded_channel::<WalletManagerMsg>();
     let (position_tx, mut position_rx) = mpsc::unbounded_channel::<PositionManagerMsg>();
 
+    let consumer: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", "localhost:9092")
+        .set("group.id", "rust-analyzer")
+        .set("auto.offset.reset", "earliest")
+        .create()
+        .expect("Consumer creation failed");
+
     //  HACK:
     let wallet_tx_ = wallet_tx.clone();
+
+    tokio::spawn(async move {
+        consumer
+            .subscribe(&["priceUpdate"])
+            .expect("Can't subscribe");
+
+        println!("Consumer started");
+
+        let mut stream = consumer.stream();
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(m) => {
+                    let payload = match m.payload_view::<str>() {
+                        Some(Ok(s)) => s,
+                        _ => "",
+                    };
+                    let key = m.key().map(|k| String::from_utf8_lossy(k).to_string());
+
+                    if let Some(key) = key {
+                        let parsed_message = handle_kafka_message(key.as_str(), payload);
+
+                        match parsed_message {
+                            KafkaMessages::IncomingPrices(price) => {}
+                            KafkaMessages::Order(order) => {
+                                println!("{:?}", order);
+                                let (oneshot_tx, oneshot_rx) =
+                                    oneshot::channel::<Result<String, String>>();
+
+                                let sent = position_tx.send(PositionManagerMsg::Open {
+                                    user_id: order.user_id.clone(),
+                                    order: order,
+                                    responder: oneshot_tx,
+                                });
+
+                                if let Err(err) = sent {
+                                    eprintln!("[KAFKA CONSUMER ORDER] {}", err);
+                                }
+
+                                match oneshot_rx.await {
+                                    Ok(Ok(response)) => {
+                                        println!("{}", response);
+                                    }
+                                    Ok(Err(err)) => {
+                                        println!("{}", err);
+                                    }
+                                    Err(err) => {
+                                        eprintln!("{}", err);
+                                    }
+                                }
+                            }
+                            KafkaMessages::CreateUser(signup_req) => {
+                                signup_req.email;
+                            }
+                            KafkaMessages::InvalidMessage => {}
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Kafka error: {}", e),
+            }
+        }
+    });
 
     // Manages users
     tokio::spawn(async move {
@@ -169,12 +243,14 @@ async fn main() {
                     }
                 }
                 PositionManagerMsg::UpdateRisk => {
-                    match positions.update_risk(wallet_tx.clone()).await {
-                        Ok(_) => {}
-                        Err(x) => {
-                            eprintln!("[UDPATE RISK PANIC]");
-                        }
-                    }
+                    // match positions.update_risk(wallet_tx.clone()).await {
+                    //     Ok(_) => {}
+                    //     Err(_) => {
+                    //         eprintln!("[UDPATE RISK PANIC]");
+                    //     }
+                    // }
+                    // let prices = latest_price_.clone().load();
+                    // println!("{} | {}", prices.bid, prices.ask);
                 }
             }
         }
